@@ -2,9 +2,11 @@
 #include <Wire.h>
 #include <Adafruit_AHTX0.h>
 #include <Adafruit_GFX.h>
+#include <Adafruit_MAX1704X.h>
 #include <Adafruit_SH110X.h>
 
 Adafruit_AHTX0 dht;
+Adafruit_MAX17048 maxlipo;
 Adafruit_SH1107 display = Adafruit_SH1107(64, 128, &Wire);
 
 // OLED FeatherWing buttons map
@@ -21,15 +23,17 @@ int display_count = DISPLAY_ON_LIMIT;
 
 void setup() {
 	Serial.begin(115200);
+	while (!Serial) delay(10);
 
-	Serial.println("128x64 OLED FeatherWing test");
+	Serial.println("---------- Boot Start ----------");
 	delay(250); // wait for the OLED to power up
 	display.begin(0x3C, true); // Address 0x3C default
-	Serial.println("OLED begun");
+	Serial.println("OLED OK");
 
 	// Show image buffer on the display hardware.
 	// Since the buffer is intialized with an Adafruit splashscreen
 	// internally, this will display the splashscreen.
+	// TODO: maybe use custom splashscreen
 	display.display();
 	delay(1000);
 
@@ -42,29 +46,50 @@ void setup() {
 	display.setTextColor(SH110X_WHITE);
 	display.setCursor(0,0);
 
-	Serial.println("Button test");
-
 	pinMode(BUTTON_A, INPUT_PULLUP);
 	pinMode(BUTTON_B, INPUT_PULLUP);
 	pinMode(BUTTON_C, INPUT_PULLUP);
 
+	// Initialize inside the box temperature and humidity sensor
 	if (!dht.begin()) {
-		Serial.println("Could not find DHT? Check wiring");
-		display.println("DHT20 issue");
+		Serial.println(F("Could not find DHT?\tCheck wiring"));
+		display.println("DHT20           ERROR");
 		display.display();
 		while (1) delay(10);
 	}
 	Serial.println("DHT20 OK");
 	display.println("DHT20              OK");
-
 	display.display();
+
+	// Initialize battery health monitoring chip
+	while (!maxlipo.begin()) {
+		Serial.println(F("Couldnt find Adafruit MAX17048?\nMake sure a battery is plugged in!"));
+		display.println("MAX17048        ERROR");
+		display.setCursor(0,8);
+		display.display();
+		delay(2000);
+	}
+	Serial.println("MAX17048 OK");
+	Serial.print(F("MAX17048 Chip ID: 0x"));
+	Serial.println(maxlipo.getChipID(), HEX);
+	display.fillRect(0, 8, 128, 16, SH110X_BLACK);
+	display.println("MAX17048           OK");
+	display.display();
+
+	maxlipo.hibernate();
+
 	delay(5000);
 	display.clearDisplay();
 	display.display();
+	Serial.println("----------- Boot End -----------");
 }
 
 void loop() {
-	if(!digitalRead(BUTTON_A)) display_count = 0;
+	if(!digitalRead(BUTTON_A)) {
+		display_count = 0;
+		maxlipo.wake();
+	}
+	// TODO: maybe add menu to format sd card, to empty barrel, to watter plants now
 	if(!digitalRead(BUTTON_B)) display.print("B");
 	if(!digitalRead(BUTTON_C)) display.print("C");
 	delay(10);
@@ -73,14 +98,17 @@ void loop() {
 		printScreen();
 		display_count++;
 		if (display_count >= DISPLAY_ON_LIMIT) {
+			maxlipo.hibernate();
 			display.clearDisplay();
 			display.display();
 		}
 	}
+	// Serial.print("MAX17048 is hibernating: ");
+	// Serial.println(maxlipo.isHibernating());
 	display.display();
 }
 
-float printBat() {
+float printVin() {
 	float measuredvbat = analogReadMilliVolts(VBATPIN);
 	measuredvbat *= 2;    // we divided by 2, so multiply back
 	measuredvbat /= 1000; // convert to volts!
@@ -97,12 +125,17 @@ void printScreen() {
 	display.setTextColor(SH110X_WHITE);
 	display.setCursor(0,0);
 	display.print("VIN:");
-	display.print(printBat());
+	display.print(printVin());
 	display.print("V");
 	display.println();
 	display.print("BOX: T:");
 	display.print(temp.temperature);
 	display.print(" H:");
-	display.print(humidity.relative_humidity);
+	display.println(humidity.relative_humidity);
+	display.print("BAT:");
+	display.print(maxlipo.cellVoltage());
+	display.print("V ");
+	display.print(maxlipo.cellPercent());
+	display.println("%");
 	display.display(); // actually display all of the above
 }
