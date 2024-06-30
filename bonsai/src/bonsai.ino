@@ -69,7 +69,7 @@ void setup() {
 
 	// Initialize battery health monitoring chip
 	while (!maxlipo.begin()) {
-		Serial.println(F("Couldn't find Adafruit MAX17048?\nMake sure a battery is plugged in!"));
+		Serial.println(F("Couldn't find Adafruit MAX17048.\nMake sure a battery is plugged in!"));
 		display.println("MAX17048        ERROR");
 		display.setCursor(0,8);
 		display.display();
@@ -168,22 +168,25 @@ void printScreen() {
 	display.print(":");
 	display.print(now.second(), DEC);
 	display.println();
+	// Display input voltage
 	display.print("VIN:");
 	display.print(printVin());
 	display.print("V");
 	display.println();
+	// Display temp and humidity inside the box
 	display.print("BOX: T:");
 	display.print(temp.temperature);
 	display.print(" H:");
 	display.print(humidity.relative_humidity);
 	display.println();
+	// Display voltage of the battery
 	display.print("BAT:");
 	display.print(maxlipo.cellVoltage());
 	display.print("V ");
 	display.print(maxlipo.cellPercent());
 	display.print("%");
 	display.println();
-	// Light sensor PT19
+	// Display data from light sensor - PT19
 	int light_value = analogRead(LIGHTPIN);
 	display.print("Light: ");
 	display.print(light_value);
