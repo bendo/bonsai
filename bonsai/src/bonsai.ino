@@ -1,3 +1,4 @@
+#include <RTClib.h>
 #include <SPI.h>
 #include <Wire.h>
 #include <Adafruit_AHTX0.h>
@@ -19,6 +20,8 @@ Adafruit_SH1107 display = Adafruit_SH1107(64, 128, &Wire);
 
 // light sensor pin
 #define LIGHTPIN A0
+
+RTC_PCF8523 rtc;
 
 constexpr int DISPLAY_ON_LIMIT = 200;
 
@@ -55,7 +58,7 @@ void setup() {
 
 	// Initialize inside the box temperature and humidity sensor
 	if (!dht.begin()) {
-		Serial.println(F("Could not find DHT?\tCheck wiring"));
+		Serial.println(F("Couldn't find DHT.\tCheck wiring"));
 		display.println("DHT20           ERROR");
 		display.display();
 		while (1) delay(10);
@@ -66,7 +69,7 @@ void setup() {
 
 	// Initialize battery health monitoring chip
 	while (!maxlipo.begin()) {
-		Serial.println(F("Couldnt find Adafruit MAX17048?\nMake sure a battery is plugged in!"));
+		Serial.println(F("Couldn't find Adafruit MAX17048?\nMake sure a battery is plugged in!"));
 		display.println("MAX17048        ERROR");
 		display.setCursor(0,8);
 		display.display();
@@ -79,6 +82,27 @@ void setup() {
 	display.println("MAX17048           OK");
 	display.display();
 
+	// Initialize RTC chip
+	if (!rtc.begin()) {
+		Serial.println(F("Couldn't find RTC."));
+		display.println("RTC             ERROR");
+		display.setCursor(0,16);
+		display.display();
+		while (1) delay(10);
+	}
+	Serial.println("RTC OK");
+	display.fillRect(0, 16, 128, 24, SH110X_BLACK);
+	display.println("RTC                OK");
+	display.display();
+
+	if (!rtc.initialized() || rtc.lostPower()) {
+		Serial.println("RTC is NOT initialized, let's set the time!");
+		rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
+	}
+	
+	rtc.start();
+
+	// Hibernate
 	maxlipo.hibernate();
 
 	delay(5000);
@@ -121,6 +145,8 @@ float printVin() {
 }
 
 void printScreen() {
+	// RTC
+	DateTime now = rtc.now();
 	// Inside termometer PHT20
 	sensors_event_t humidity, temp;
 	dht.getEvent(&humidity, &temp);// populate temp and humidity objects
@@ -129,6 +155,19 @@ void printScreen() {
 	display.setTextSize(1);
 	display.setTextColor(SH110X_WHITE);
 	display.setCursor(0,0);
+	// Display current time
+	display.print(now.day(), DEC);
+	display.print(".");
+	display.print(now.month(), DEC);
+	display.print(".");
+	display.print(now.year(), DEC);
+	display.print(" - ");
+	display.print(now.hour(), DEC);
+	display.print(":");
+	display.print(now.minute(), DEC);
+	display.print(":");
+	display.print(now.second(), DEC);
+	display.println();
 	display.print("VIN:");
 	display.print(printVin());
 	display.print("V");
@@ -136,18 +175,21 @@ void printScreen() {
 	display.print("BOX: T:");
 	display.print(temp.temperature);
 	display.print(" H:");
-	display.println(humidity.relative_humidity);
+	display.print(humidity.relative_humidity);
+	display.println();
 	display.print("BAT:");
 	display.print(maxlipo.cellVoltage());
 	display.print("V ");
 	display.print(maxlipo.cellPercent());
-	display.println("%");
+	display.print("%");
+	display.println();
 	// Light sensor PT19
 	int light_value = analogRead(LIGHTPIN);
 	display.print("Light: ");
 	display.print(light_value);
 	display.print(" - ");
 	display.print((int)(light_value * 0.0245));
-	display.print("% ");
+	display.print("%");
+	display.println();
 	display.display(); // actually display all of the above
 }
