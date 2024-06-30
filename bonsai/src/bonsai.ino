@@ -17,6 +17,9 @@ Adafruit_SH1107 display = Adafruit_SH1107(64, 128, &Wire);
 // battery pin
 #define VBATPIN A13
 
+// light sensor pin
+#define LIGHTPIN A0
+
 constexpr int DISPLAY_ON_LIMIT = 200;
 
 int display_count = DISPLAY_ON_LIMIT;
@@ -90,6 +93,8 @@ void loop() {
 		maxlipo.wake();
 	}
 	// TODO: maybe add menu to format sd card, to empty barrel, to watter plants now
+	// TODO when holding button for more then 5 seconds switch to control menu
+	// TODO short press to move to next item in menu, 3 second press to submit selected choise from menu
 	if(!digitalRead(BUTTON_B)) display.print("B");
 	if(!digitalRead(BUTTON_C)) display.print("C");
 	delay(10);
@@ -116,7 +121,7 @@ float printVin() {
 }
 
 void printScreen() {
-	// PHT20
+	// Inside termometer PHT20
 	sensors_event_t humidity, temp;
 	dht.getEvent(&humidity, &temp);// populate temp and humidity objects
 	// OLED
@@ -137,5 +142,12 @@ void printScreen() {
 	display.print("V ");
 	display.print(maxlipo.cellPercent());
 	display.println("%");
+	// Light sensor PT19
+	int light_value = analogRead(LIGHTPIN);
+	display.print("Light: ");
+	display.print(light_value);
+	display.print(" - ");
+	display.print((int)(light_value * 0.0245));
+	display.print("% ");
 	display.display(); // actually display all of the above
 }

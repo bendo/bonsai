@@ -7,11 +7,11 @@
 - test - delete entry from SD Card
 
 ## HW
+- solve 5V circuit for pump and water level sensors
 - add DF Robot sensor input to board
-- add light sensor to board
 
 ## HW + SW
-- show data on display when button is pressed
+- show data on display when outside button is pressed
 - turn on/off circuit with relay feather 
 
 ## Idea
