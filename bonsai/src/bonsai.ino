@@ -1,4 +1,5 @@
 #include <RTClib.h>
+#include <SD.h>
 #include <SPI.h>
 #include <Wire.h>
 #include <Adafruit_AHTX0.h>
@@ -21,11 +22,18 @@ Adafruit_SH1107 display = Adafruit_SH1107(64, 128, &Wire);
 // light sensor pin
 #define LIGHTPIN A0
 
+// SD Card
+#define SD_CS 33
+
+// rtc
 RTC_PCF8523 rtc;
+
+File logfile;
 
 constexpr int DISPLAY_ON_LIMIT = 200;
 
 int display_count = DISPLAY_ON_LIMIT;
+bool logged = false;
 
 void setup() {
 	Serial.begin(115200);
@@ -58,7 +66,7 @@ void setup() {
 
 	// Initialize inside the box temperature and humidity sensor
 	if (!dht.begin()) {
-		Serial.println(F("Couldn't find DHT.\tCheck wiring"));
+		Serial.println(F("Couldn't find DHT.\tCheck wiring."));
 		display.println("DHT20           ERROR");
 		display.display();
 		while (1) delay(10);
@@ -102,6 +110,43 @@ void setup() {
 	
 	rtc.start();
 
+	// Initialize SD Card
+	while (!SD.begin(SD_CS)) {
+		Serial.println(F("SD Card init failed.\tCheck sd card."));
+		display.println("SD Card         ERROR");
+		display.setCursor(0,24);
+		display.display();
+		delay(2000);
+	}
+	Serial.println("SD Card OK");
+	display.fillRect(0, 24, 128, 32, SH110X_BLACK);
+	display.println("SD Card            OK");
+	display.display();
+        
+	// Check filesystem on SD Card
+	File root = SD.open("/");
+	printDirectory(root, 0);
+
+	char filename[15];
+	strcpy(filename, "/ANALOG00.TXT");
+	for (uint8_t i = 0; i < 100; i++) {
+		filename[7] = '0' + i/10;
+		filename[8] = '0' + i%10;
+		// create if does not exist, do not open existing, write, sync after write
+		if (! SD.exists(filename)) {
+			break;
+		}
+	}
+
+	logfile = SD.open(filename, FILE_WRITE);
+	if(!logfile) {
+		Serial.print("Couldn't create "); 
+		Serial.println(filename);
+	}
+	Serial.print("Writing to "); 
+	Serial.println(filename);
+	Serial.println("Ready!");
+		
 	// Hibernate
 	maxlipo.hibernate();
 
@@ -117,8 +162,8 @@ void loop() {
 		maxlipo.wake();
 	}
 	// TODO: maybe add menu to format sd card, to empty barrel, to watter plants now
-	// TODO when holding button for more then 5 seconds switch to control menu
-	// TODO short press to move to next item in menu, 3 second press to submit selected choise from menu
+	//       when holding button for more then 5 seconds switch to control menu
+	//       short press to move to next item in menu, 3 second press to submit selected choise from menu
 	if(!digitalRead(BUTTON_B)) display.print("B");
 	if(!digitalRead(BUTTON_C)) display.print("C");
 	delay(10);
@@ -132,6 +177,29 @@ void loop() {
 			display.display();
 		}
 	}
+
+	DateTime time = rtc.now();
+	if (time.second() < 2 && !logged) {
+		logged = true;
+		logfile.print(time.timestamp(DateTime::TIMESTAMP_FULL));
+		logfile.print("|");
+		logfile.print(printVin());
+		logfile.print("|");
+		logfile.print(analogRead(LIGHTPIN));
+		logfile.println();
+		Serial.print(time.timestamp(DateTime::TIMESTAMP_FULL));
+		Serial.print("|");
+		Serial.print(printVin());
+		Serial.print("|");
+		Serial.print(analogRead(LIGHTPIN));
+		Serial.println();
+		logfile.flush();
+	}
+
+	if (time.second() > 5 && logged) {
+		logged = false;
+	}
+
 	// Serial.print("MAX17048 is hibernating: ");
 	// Serial.println(maxlipo.isHibernating());
 	display.display();
@@ -149,7 +217,7 @@ void printScreen() {
 	DateTime now = rtc.now();
 	// Inside termometer PHT20
 	sensors_event_t humidity, temp;
-	dht.getEvent(&humidity, &temp);// populate temp and humidity objects
+	dht.getEvent(&humidity, &temp); // populate temp and humidity objects
 	// OLED
 	display.clearDisplay();
 	display.setTextSize(1);
@@ -166,6 +234,9 @@ void printScreen() {
 	display.print(":");
 	display.print(now.minute(), DEC);
 	display.print(":");
+	if (now.second() < 10) {
+		display.print("0");
+	}
 	display.print(now.second(), DEC);
 	display.println();
 	// Display input voltage
@@ -195,4 +266,27 @@ void printScreen() {
 	display.print("%");
 	display.println();
 	display.display(); // actually display all of the above
+}
+
+void printDirectory(File dir, int numTabs) {
+	while(true) {
+		File entry =  dir.openNextFile();
+		if (! entry) {
+			// no more files
+			break;
+		}
+		for (uint8_t i=0; i<numTabs; i++) {
+			Serial.print('\t');
+		}
+		Serial.print(entry.name());
+		if (entry.isDirectory()) {
+			Serial.println("/");
+			printDirectory(entry, numTabs+1);
+		} else {
+			// files have sizes, directories do not
+			Serial.print("\t\t");
+			Serial.println(entry.size(), DEC);
+		}
+		entry.close();
+	}
 }
