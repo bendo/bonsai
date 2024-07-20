@@ -16,11 +16,18 @@ Adafruit_SH1107 display = Adafruit_SH1107(64, 128, &Wire);
 #define BUTTON_B  32
 #define BUTTON_C  14
 
+// water level sensor
+#define WATERTOPPIN 12
+#define WATERBOTTOMPIN 27
+
 // battery pin
 #define VBATPIN A13
 
 // light sensor pin
 #define LIGHTPIN A0
+
+// power relay pin
+#define RELAYPIN A1
 
 // SD Card
 #define SD_CS 33
@@ -32,6 +39,8 @@ File logfile;
 
 constexpr int DISPLAY_ON_LIMIT = 200;
 
+int liquidLevelTop = 0;
+int liquidLevelBottom = 0;
 int display_count = DISPLAY_ON_LIMIT;
 bool logged = false;
 
@@ -63,6 +72,11 @@ void setup() {
 	pinMode(BUTTON_A, INPUT_PULLUP);
 	pinMode(BUTTON_B, INPUT_PULLUP);
 	pinMode(BUTTON_C, INPUT_PULLUP);
+
+	pinMode(WATERTOPPIN, INPUT);
+	pinMode(WATERBOTTOMPIN, INPUT);
+
+	pinMode(RELAYPIN, OUTPUT);
 
 	// Initialize inside the box temperature and humidity sensor
 	if (!dht.begin()) {
@@ -146,6 +160,8 @@ void setup() {
 	Serial.print("Writing to "); 
 	Serial.println(filename);
 	Serial.println("Ready!");
+	logfile.println("timestamp,vin,light");
+	logfile.flush();
 		
 	// Hibernate
 	maxlipo.hibernate();
@@ -164,8 +180,14 @@ void loop() {
 	// TODO: maybe add menu to format sd card, to empty barrel, to watter plants now
 	//       when holding button for more then 5 seconds switch to control menu
 	//       short press to move to next item in menu, 3 second press to submit selected choise from menu
-	if(!digitalRead(BUTTON_B)) display.print("B");
-	if(!digitalRead(BUTTON_C)) display.print("C");
+	if(!digitalRead(BUTTON_B)) {
+		analogWrite(RELAYPIN, 255);
+		Serial.println("low");
+	}
+	if(!digitalRead(BUTTON_C)) {
+		analogWrite(RELAYPIN, 0);
+		Serial.println("high");
+	}
 	delay(10);
 	yield();
 	if (display_count < DISPLAY_ON_LIMIT) {
@@ -182,15 +204,15 @@ void loop() {
 	if (time.second() < 2 && !logged) {
 		logged = true;
 		logfile.print(time.timestamp(DateTime::TIMESTAMP_FULL));
-		logfile.print("|");
+		logfile.print(",");
 		logfile.print(printVin());
-		logfile.print("|");
+		logfile.print(",");
 		logfile.print(analogRead(LIGHTPIN));
 		logfile.println();
 		Serial.print(time.timestamp(DateTime::TIMESTAMP_FULL));
-		Serial.print("|");
+		Serial.print(",");
 		Serial.print(printVin());
-		Serial.print("|");
+		Serial.print(",");
 		Serial.print(analogRead(LIGHTPIN));
 		Serial.println();
 		logfile.flush();
@@ -199,6 +221,14 @@ void loop() {
 	if (time.second() > 5 && logged) {
 		logged = false;
 	}
+
+	liquidLevelTop = digitalRead(WATERTOPPIN);
+	Serial.print("liquidLevel TOP = ");
+	Serial.println(liquidLevelTop, DEC);
+
+	liquidLevelBottom = digitalRead(WATERBOTTOMPIN);
+	Serial.print("liquidLevel BOTTOM = ");
+	Serial.println(liquidLevelBottom, DEC);
 
 	// Serial.print("MAX17048 is hibernating: ");
 	// Serial.println(maxlipo.isHibernating());
