@@ -142,10 +142,10 @@ void setup() {
 	printDirectory(root, 0);
 
 	char filename[15];
-	strcpy(filename, "/ANALOG00.TXT");
+	strcpy(filename, "/BOX00.CSV");
 	for (uint8_t i = 0; i < 100; i++) {
-		filename[7] = '0' + i/10;
-		filename[8] = '0' + i%10;
+		filename[4] = '0' + i/10;
+		filename[5] = '0' + i%10;
 		// create if does not exist, do not open existing, write, sync after write
 		if (! SD.exists(filename)) {
 			break;
@@ -160,7 +160,7 @@ void setup() {
 	Serial.print("Writing to "); 
 	Serial.println(filename);
 	Serial.println("Ready!");
-	logfile.println("timestamp,vin,light");
+	logfile.println("timestamp,temperature,humidity,vbat,vsolar,levelTop,levelBottom,light");
 	logfile.flush();
 		
 	// Hibernate
@@ -182,11 +182,11 @@ void loop() {
 	//       short press to move to next item in menu, 3 second press to submit selected choise from menu
 	if(!digitalRead(BUTTON_B)) {
 		analogWrite(RELAYPIN, 255);
-		Serial.println("low");
+		Serial.println("Pump manually turned ON.");
 	}
 	if(!digitalRead(BUTTON_C)) {
 		analogWrite(RELAYPIN, 0);
-		Serial.println("high");
+		Serial.println("Pump manually turned OFF.");
 	}
 	delay(10);
 	yield();
@@ -200,35 +200,7 @@ void loop() {
 		}
 	}
 
-	DateTime time = rtc.now();
-	if (time.second() < 2 && !logged) {
-		logged = true;
-		logfile.print(time.timestamp(DateTime::TIMESTAMP_FULL));
-		logfile.print(",");
-		logfile.print(printVin());
-		logfile.print(",");
-		logfile.print(analogRead(LIGHTPIN));
-		logfile.println();
-		Serial.print(time.timestamp(DateTime::TIMESTAMP_FULL));
-		Serial.print(",");
-		Serial.print(printVin());
-		Serial.print(",");
-		Serial.print(analogRead(LIGHTPIN));
-		Serial.println();
-		logfile.flush();
-	}
-
-	if (time.second() > 5 && logged) {
-		logged = false;
-	}
-
-	liquidLevelTop = digitalRead(WATERTOPPIN);
-	Serial.print("liquidLevel TOP = ");
-	Serial.println(liquidLevelTop, DEC);
-
-	liquidLevelBottom = digitalRead(WATERBOTTOMPIN);
-	Serial.print("liquidLevel BOTTOM = ");
-	Serial.println(liquidLevelBottom, DEC);
+	logData();
 
 	// Serial.print("MAX17048 is hibernating: ");
 	// Serial.println(maxlipo.isHibernating());
@@ -240,6 +212,57 @@ float printVin() {
 	measuredvbat *= 2;    // we divided by 2, so multiply back
 	measuredvbat /= 1000; // convert to volts!
 	return measuredvbat;
+}
+
+void logData() {
+	// timestamp,temperature,humidity,vbat,vsolar,levelTop,levelBottom,light
+	DateTime time = rtc.now();
+	// change to .minute() to log once every hour
+	if (time.second() < 2 && !logged) {
+		logged = true;
+
+		sensors_event_t humidity, temp;
+		dht.getEvent(&humidity, &temp); // populate temp and humidity objects
+
+		logfile.print(time.timestamp(DateTime::TIMESTAMP_FULL));
+		logfile.print(",");
+		logfile.print(temp.temperature);
+		logfile.print(",");
+		logfile.print(humidity.relative_humidity);
+		logfile.print(",");
+		logfile.print(maxlipo.cellVoltage());
+		logfile.print(",");
+		logfile.print(printVin());
+		logfile.print(",");
+		logfile.print(digitalRead(WATERTOPPIN), DEC);
+		logfile.print(",");
+		logfile.print(digitalRead(WATERBOTTOMPIN), DEC);
+		logfile.print(",");
+		logfile.print(analogRead(LIGHTPIN));
+		logfile.println();
+		logfile.flush();
+
+		Serial.print(time.timestamp(DateTime::TIMESTAMP_FULL));
+		Serial.print(",");
+		Serial.print(temp.temperature);
+		Serial.print(",");
+		Serial.print(humidity.relative_humidity);
+		Serial.print(",");
+		Serial.print(maxlipo.cellVoltage());
+		Serial.print(",");
+		Serial.print(printVin());
+		Serial.print(",");
+		Serial.print(digitalRead(WATERTOPPIN), DEC);
+		Serial.print(",");
+		Serial.print(digitalRead(WATERBOTTOMPIN), DEC);
+		Serial.print(",");
+		Serial.print(analogRead(LIGHTPIN));
+		Serial.println();
+	}
+
+	if (time.second() > 5 && logged) {
+		logged = false;
+	}
 }
 
 void printScreen() {
@@ -262,6 +285,9 @@ void printScreen() {
 	display.print(" - ");
 	display.print(now.hour(), DEC);
 	display.print(":");
+	if (now.minute() < 10) {
+		display.print("0");
+	}
 	display.print(now.minute(), DEC);
 	display.print(":");
 	if (now.second() < 10) {
@@ -295,7 +321,20 @@ void printScreen() {
 	display.print((int)(light_value * 0.0245));
 	display.print("%");
 	display.println();
-	display.display(); // actually display all of the above
+	// Dispay water level TOP
+	display.print("Level TOP: ");
+	liquidLevelTop = digitalRead(WATERTOPPIN);
+	String topLevel = liquidLevelTop == 1 ? "WATTER" : "NO WATTER";
+	display.print(topLevel);
+	display.println();
+	// Dispay water level BOTTOM
+	display.print("Level BOTTOM: ");
+	liquidLevelBottom = digitalRead(WATERBOTTOMPIN);
+	String bottomLevel = liquidLevelBottom == 1 ? "WATTER" : "NO WATTER";
+	display.print(bottomLevel);
+	display.println();
+	// Display all of the above
+	display.display();
 }
 
 void printDirectory(File dir, int numTabs) {
