@@ -1,0 +1,23 @@
+* TODO
+
+** Software
+
+*** New features
+    - ( ) Done
+    -- ( ) read from SD Card
+    -- ( ) connect to WiFi
+    -- ( ) add more functionality
+    --- ( ) user can see level of water
+    --- ( ) user can see energy info (battery lvl, power input)
+    --- ( ) user can run diagnostics
+
+*** Bugs
+    - ( ) Done
+    -- (!) fix startup - start even when not every HW part is connected
+
+
+** Hardware
+
+*** Todos
+    - ( ) Done
+    -- ( ) solve cooling mechanism

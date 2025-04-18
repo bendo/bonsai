@@ -1,0 +1,10 @@
+* Ideas
+
+  - user can press button for longer time (3s) to enter the menu
+  -- short press moving to next item
+  -- long press enter current item
+  --- in menu user can:
+  ---- restart whole system
+  ---- empty the water barrel
+  ---- run diagnostics
+  ---- check energy details

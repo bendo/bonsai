@@ -200,6 +200,11 @@ void loop() {
 		}
 	}
 
+	if (digitalRead(WATERBOTTOMPIN) == 0) {
+		Serial.println("Water level too low, pump turned OFF.");
+		analogWrite(RELAYPIN, 0);
+	}
+
 	logData();
 
 	// Serial.print("MAX17048 is hibernating: ");
