@@ -4,3 +4,4 @@
 - build -> `pio run`
 - build and upload -> `pio run -t upload`
 - monitor -> `pio device monitor --baud 115200`
+- generate compilation db -> `pio run -t compiledb`
