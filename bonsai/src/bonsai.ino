@@ -41,18 +41,30 @@ RTC_PCF8523 rtc;
 
 File logfile;
 
+// Timing constants
+const int wateringHour = 20;    // 21:00 (9 PM)
+const int wateringMinute = 5;  // 35 minutes past the hour
+const long wateringDuration = 5 * 60 * 1000UL; // 5 minutes in milliseconds
+const long checkInterval = 1000; // Check water level every 1 second
+
+struct WateringState {
+    bool isWatering;            // Tracks if pump is currently on
+    unsigned long startTime;    // When watering started
+    unsigned long lastCheckTime; // Last time water level was checked
+};
+WateringState state = {false, 0, 0};
+
 constexpr int DISPLAY_ON_LIMIT = 200;
 
-int liquidLevelTop = 0;
-int liquidLevelBottom = 0;
-int display_count = DISPLAY_ON_LIMIT;
+byte liquidLevelTop = 0;
+byte liquidLevelBottom = 0;
+byte display_count = DISPLAY_ON_LIMIT;
 
 // long vs short press of button A
 bool lastButtonState = HIGH;
 bool buttonState = HIGH;
 unsigned long buttonPressStart = 0;
 bool isLongPressDetected = false;
-bool isPumpSetOn = false;
 
 bool logged = false;
 
@@ -129,9 +141,10 @@ void setup() {
     display.println("RTC                OK");
     display.display();
 
+    //rtc.adjust(DateTime(2025, 7, 20, 20, 28, 0));
     if (!rtc.initialized() || rtc.lostPower()) {
         Serial.println("RTC is NOT initialized, let's set the time!");
-        rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
+        //rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
     }
 
     rtc.start();
@@ -215,7 +228,7 @@ void loop() {
             display.setCursor(0,0);
 
             Serial.println("Button A held for 2+ seconds!");
-            if (isPumpSetOn) {
+            if (state.isWatering) {
                 turnOffPump();
                 display.print("Pump turned OFF.");
             } else {
@@ -250,7 +263,39 @@ void loop() {
         }
     }
 
-    if (digitalRead(WATERBOTTOMPIN) == 0) {
+    DateTime now = rtc.now();
+
+    // Check if it's time to start watering (21:35)
+    if (!state.isWatering && now.hour() == wateringHour && now.minute() == wateringMinute && now.second() < 20) {
+        if (isWaterLevelOK()) {
+            turnOnPump();
+        } else {
+            Serial.println("Water level too low, skipping watering!");
+        }
+    }
+
+    // Manage ongoing watering
+    if (state.isWatering) {
+        unsigned long currentMillis = millis();
+
+        // Check water level periodically
+        if (currentMillis - state.lastCheckTime >= checkInterval) {
+            state.lastCheckTime = currentMillis;
+            if (!isWaterLevelOK()) {
+                turnOffPump();
+                Serial.println("Water level too low, stopped watering!");
+                return; // Exit loop to avoid further checks
+            }
+        }
+
+        // Stop watering after duration
+        if (currentMillis - state.startTime >= wateringDuration) {
+            turnOffPump();
+            Serial.println("Watering complete!");
+        }
+    }
+
+    if (!isWaterLevelOK()) {
         Serial.println("Water level too low, pump turned OFF.");
         turnOffPump();
     }
@@ -262,16 +307,24 @@ void loop() {
     display.display();
 }
 
+bool isWaterLevelOK() {
+    return digitalRead(WATERBOTTOMPIN) == 1;
+}
+
 void turnOnPump() {
-    analogWrite(RELAYPIN, 255);
-    Serial.println("Pump turned ON.");
-    isPumpSetOn = true;
+    if (isWaterLevelOK()) {
+        analogWrite(RELAYPIN, 255);
+        state.isWatering = true;
+        state.startTime = millis();
+        state.lastCheckTime = state.startTime;
+        Serial.println("Pump turned ON.");
+    }
 }
 
 void turnOffPump() {
     analogWrite(RELAYPIN, 0);
+    state.isWatering = false;
     Serial.println("Pump turned OFF.");
-    isPumpSetOn = false;
 }
 
 float printVin() {
