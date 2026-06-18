@@ -2,6 +2,9 @@
 #include <SD.h>
 #include <SPI.h>
 #include <Wire.h>
+#include <WiFi.h>
+#include <WiFiClientSecure.h>
+#include <HTTPClient.h>
 #include <Adafruit_AHTX0.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_MAX1704X.h>
@@ -21,14 +24,14 @@ Adafruit_SH1107 display = Adafruit_SH1107(64, 128, &Wire);
 #define DEBOUNCE_TIME 50
 
 // water level sensor
-#define WATERTOPPIN 12
+#define WATERTOPPIN A0
 #define WATERBOTTOMPIN 27
 
 // battery pin
 #define VBATPIN A13
 
 // light sensor pin
-#define LIGHTPIN A0
+#define LIGHTPIN A2
 
 // power relay pin
 #define RELAYPIN A1
@@ -46,6 +49,10 @@ const int wateringHour = 20;    // 21:00 (9 PM)
 const int wateringMinute = 5;  // 35 minutes past the hour
 const long wateringDuration = 5 * 60 * 1000UL; // 5 minutes in milliseconds
 const long checkInterval = 1000; // Check water level every 1 second
+
+// WiFi constants
+String ssid;
+String password;
 
 struct WateringState {
     bool isWatering;            // Tracks if pump is currently on
@@ -162,6 +169,15 @@ void setup() {
     display.println("SD Card            OK");
     display.display();
 
+    // Read WiFi Credentials
+    if (!readWiFiCredentials()) {
+        Serial.println("Failed to read WiFi credentials");
+        while (1);
+    }
+
+    // Connect to WiFi
+    connectToWiFi();
+
     // Check filesystem on SD Card
     File root = SD.open("/");
     printDirectory(root, 0);
@@ -195,6 +211,74 @@ void setup() {
     display.clearDisplay();
     display.display();
     Serial.println("----------- Boot End -----------");
+}
+
+bool readWiFiCredentials() {
+    File file = SD.open("/config.txt", FILE_READ);
+    if (!file) {
+        Serial.println("Failed to open /config.txt");
+        return false;
+    }
+
+    String line;
+    while (file.available()) {
+        line = file.readStringUntil('\n');
+        line.trim();
+        if (line.startsWith("SSID:")) {
+            ssid = line.substring(5);
+            ssid.trim();
+        } else if (line.startsWith("PASSWORD:")) {
+            password = line.substring(9);
+            password.trim();
+        }
+    }
+    file.close();
+
+    if (ssid.isEmpty() || password.isEmpty()) {
+        Serial.println("SSID or password not found in config.txt");
+        return false;
+    }
+    return true;
+}
+
+void connectToWiFi() {
+    const int maxRetries = 10;
+    int retries = 0;
+
+    Serial.printf("Connecting to WiFi SSID: %s\n", ssid.c_str());
+    WiFi.begin(ssid.c_str(), password.c_str());
+
+    while (WiFi.status() != WL_CONNECTED && retries < maxRetries) {
+        delay(1000);
+        Serial.print("WiFi status: ");
+        switch (WiFi.status()) {
+            case WL_NO_SSID_AVAIL:
+                Serial.println("SSID not found");
+                break;
+            case WL_CONNECT_FAILED:
+                Serial.println("Connection failed (wrong password?)");
+                break;
+            case WL_DISCONNECTED:
+                Serial.println("Disconnected, retrying...");
+                break;
+            default:
+                Serial.println(WiFi.status());
+                break;
+        }
+        retries++;
+    }
+    if (WiFi.status() == WL_CONNECTED) {
+        Serial.print("Connected to WiFi. IP address: ");
+        Serial.println(WiFi.localIP());
+        display.fillRect(0, 32, 128, 40, SH110X_BLACK);
+        display.println("WiFi               OK");
+        display.display();
+    } else {
+        Serial.println("Failed to connect to WiFi after retries");
+        display.fillRect(0, 32, 128, 40, SH110X_BLACK);
+        display.println("WiFi            ERROR");
+        display.display();
+    }
 }
 
 void loop() {
@@ -442,19 +526,25 @@ void printScreen() {
     display.print("%");
     display.println();
     // Dispay water level TOP
-    display.print("Level TOP: ");
+    display.print("LT: ");
     liquidLevelTop = digitalRead(WATERTOPPIN);
-    String topLevel = liquidLevelTop == 1 ? "WATTER" : "NO WATTER";
+    String topLevel = liquidLevelTop == 1 ? "OK" : "NO";
     display.print(topLevel);
-    display.println();
     // Dispay water level BOTTOM
-    display.print("Level BOTTOM: ");
+    display.print(" LB: ");
     liquidLevelBottom = digitalRead(WATERBOTTOMPIN);
-    String bottomLevel = liquidLevelBottom == 1 ? "WATTER" : "NO WATTER";
+    String bottomLevel = liquidLevelBottom == 1 ? "OK" : "NO";
     display.print(bottomLevel);
     display.println();
+    // Display WiFi status
+    display.print("WiFi: ");
+    display.print(isWiFiOn() ? "ON" : "OFF");
     // Display all of the above
     display.display();
+}
+
+bool isWiFiOn() {
+    return WiFi.status() == WL_CONNECTED;
 }
 
 void printDirectory(File dir, int numTabs) {
