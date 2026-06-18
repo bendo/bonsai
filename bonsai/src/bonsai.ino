@@ -75,6 +75,17 @@ bool isLongPressDetected = false;
 
 bool logged = false;
 
+bool hasDht = false;
+bool hasBatteryMonitor = false;
+bool hasRtc = false;
+bool hasSd = false;
+bool hasWiFiCredentials = false;
+
+bool beginDhtWithRetry();
+bool beginBatteryMonitorWithRetry();
+bool beginRtcWithRetry();
+bool beginSdWithRetry();
+
 void setup() {
     Serial.begin(115200);
     while (!Serial) delay(10);
@@ -108,104 +119,120 @@ void setup() {
     pinMode(WATERBOTTOMPIN, INPUT);
 
     pinMode(RELAYPIN, OUTPUT);
+    turnOffPump();
 
     // Initialize inside the box temperature and humidity sensor
-    if (!dht.begin()) {
+    if (!beginDhtWithRetry()) {
         Serial.println(F("Couldn't find DHT.\tCheck wiring."));
         display.println("DHT20           ERROR");
         display.display();
-        while (1) delay(10);
+    } else {
+        hasDht = true;
+        Serial.println("DHT20 OK");
+        display.println("DHT20              OK");
+        display.display();
     }
-    Serial.println("DHT20 OK");
-    display.println("DHT20              OK");
-    display.display();
 
     // Initialize battery health monitoring chip
-    while (!maxlipo.begin()) {
+    if (!beginBatteryMonitorWithRetry()) {
         Serial.println(F("Couldn't find Adafruit MAX17048.\nMake sure a battery is plugged in!"));
         display.println("MAX17048        ERROR");
         display.setCursor(0,8);
         display.display();
-        delay(2000);
+    } else {
+        hasBatteryMonitor = true;
+        Serial.println("MAX17048 OK");
+        Serial.print(F("MAX17048 Chip ID: 0x"));
+        Serial.println(maxlipo.getChipID(), HEX);
+        display.fillRect(0, 8, 128, 16, SH110X_BLACK);
+        display.println("MAX17048           OK");
+        display.display();
     }
-    Serial.println("MAX17048 OK");
-    Serial.print(F("MAX17048 Chip ID: 0x"));
-    Serial.println(maxlipo.getChipID(), HEX);
-    display.fillRect(0, 8, 128, 16, SH110X_BLACK);
-    display.println("MAX17048           OK");
-    display.display();
 
     // Initialize RTC chip
-    if (!rtc.begin()) {
+    if (!beginRtcWithRetry()) {
         Serial.println(F("Couldn't find RTC."));
         display.println("RTC             ERROR");
         display.setCursor(0,16);
         display.display();
-        while (1) delay(10);
-    }
-    Serial.println("RTC OK");
-    display.fillRect(0, 16, 128, 24, SH110X_BLACK);
-    display.println("RTC                OK");
-    display.display();
+    } else {
+        hasRtc = true;
+        Serial.println("RTC OK");
+        display.fillRect(0, 16, 128, 24, SH110X_BLACK);
+        display.println("RTC                OK");
+        display.display();
 
-    //rtc.adjust(DateTime(2025, 7, 20, 20, 28, 0));
-    if (!rtc.initialized() || rtc.lostPower()) {
-        Serial.println("RTC is NOT initialized, let's set the time!");
-        //rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
-    }
+        //rtc.adjust(DateTime(2025, 7, 20, 20, 28, 0));
+        if (!rtc.initialized() || rtc.lostPower()) {
+            Serial.println("RTC is NOT initialized, let's set the time!");
+            //rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
+        }
 
-    rtc.start();
+        rtc.start();
+    }
 
     // Initialize SD Card
-    while (!SD.begin(SD_CS)) {
+    if (!beginSdWithRetry()) {
         Serial.println(F("SD Card init failed.\tCheck sd card."));
         display.println("SD Card         ERROR");
         display.setCursor(0,24);
         display.display();
-        delay(2000);
+    } else {
+        hasSd = true;
+        Serial.println("SD Card OK");
+        display.fillRect(0, 24, 128, 32, SH110X_BLACK);
+        display.println("SD Card            OK");
+        display.display();
     }
-    Serial.println("SD Card OK");
-    display.fillRect(0, 24, 128, 32, SH110X_BLACK);
-    display.println("SD Card            OK");
-    display.display();
 
     // Read WiFi Credentials
-    if (!readWiFiCredentials()) {
+    if (hasSd && readWiFiCredentials()) {
+        hasWiFiCredentials = true;
+    } else {
         Serial.println("Failed to read WiFi credentials");
-        while (1);
     }
 
     // Connect to WiFi
-    connectToWiFi();
+    if (hasWiFiCredentials) {
+        connectToWiFi();
+    }
 
     // Check filesystem on SD Card
-    File root = SD.open("/");
-    printDirectory(root, 0);
+    if (hasSd) {
+        File root = SD.open("/");
+        printDirectory(root, 0);
+    }
 
     char filename[15];
     strcpy(filename, "/BOX00.CSV");
-    for (uint8_t i = 0; i < 100; i++) {
-        filename[4] = '0' + i/10;
-        filename[5] = '0' + i%10;
-        // create if does not exist, do not open existing, write, sync after write
-        if (! SD.exists(filename)) {
-            break;
+    if (hasSd) {
+        for (uint8_t i = 0; i < 100; i++) {
+            filename[4] = '0' + i/10;
+            filename[5] = '0' + i%10;
+            // create if does not exist, do not open existing, write, sync after write
+            if (! SD.exists(filename)) {
+                break;
+            }
+        }
+
+        logfile = SD.open(filename, FILE_WRITE);
+        if (!logfile) {
+            Serial.print("Couldn't create ");
+            Serial.println(filename);
         }
     }
-
-    logfile = SD.open(filename, FILE_WRITE);
-    if (!logfile) {
-        Serial.print("Couldn't create ");
+    if (logfile) {
+        Serial.print("Writing to ");
         Serial.println(filename);
+        Serial.println("Ready!");
+        logfile.println("timestamp,temperature,humidity,vbat,vsolar,levelTop,levelBottom,light");
+        logfile.flush();
     }
-    Serial.print("Writing to ");
-    Serial.println(filename);
-    Serial.println("Ready!");
-    logfile.println("timestamp,temperature,humidity,vbat,vsolar,levelTop,levelBottom,light");
-    logfile.flush();
 
     // Hibernate
-    maxlipo.hibernate();
+    if (hasBatteryMonitor) {
+        maxlipo.hibernate();
+    }
 
     delay(5000);
     display.clearDisplay();
@@ -239,6 +266,46 @@ bool readWiFiCredentials() {
         return false;
     }
     return true;
+}
+
+bool beginDhtWithRetry() {
+    for (uint8_t i = 0; i < 5; i++) {
+        if (dht.begin()) {
+            return true;
+        }
+        delay(200);
+    }
+    return false;
+}
+
+bool beginBatteryMonitorWithRetry() {
+    for (uint8_t i = 0; i < 5; i++) {
+        if (maxlipo.begin()) {
+            return true;
+        }
+        delay(200);
+    }
+    return false;
+}
+
+bool beginRtcWithRetry() {
+    for (uint8_t i = 0; i < 5; i++) {
+        if (rtc.begin()) {
+            return true;
+        }
+        delay(200);
+    }
+    return false;
+}
+
+bool beginSdWithRetry() {
+    for (uint8_t i = 0; i < 10; i++) {
+        if (SD.begin(SD_CS)) {
+            return true;
+        }
+        delay(250);
+    }
+    return false;
 }
 
 void connectToWiFi() {
@@ -293,7 +360,9 @@ void loop() {
         buttonState = readingButtonA;
 
         if (buttonState == LOW) { // Button pressed (active LOW)
-            maxlipo.wake();
+            if (hasBatteryMonitor) {
+                maxlipo.wake();
+            }
             display_count = 0;
             buttonPressStart = millis(); // Record press start time
             isLongPressDetected = false;  // Reset long press flag
@@ -341,20 +410,23 @@ void loop() {
         printScreen();
         display_count++;
         if (display_count >= DISPLAY_ON_LIMIT) {
-            maxlipo.hibernate();
+            if (hasBatteryMonitor) {
+                maxlipo.hibernate();
+            }
             display.clearDisplay();
             display.display();
         }
     }
 
-    DateTime now = rtc.now();
-
     // Check if it's time to start watering (21:35)
-    if (!state.isWatering && now.hour() == wateringHour && now.minute() == wateringMinute && now.second() < 20) {
-        if (isWaterLevelOK()) {
-            turnOnPump();
-        } else {
-            Serial.println("Water level too low, skipping watering!");
+    if (hasRtc) {
+        DateTime now = rtc.now();
+        if (!state.isWatering && now.hour() == wateringHour && now.minute() == wateringMinute && now.second() < 20) {
+            if (isWaterLevelOK()) {
+                turnOnPump();
+            } else {
+                Serial.println("Water level too low, skipping watering!");
+            }
         }
     }
 
@@ -419,6 +491,10 @@ float printVin() {
 }
 
 void logData() {
+    if (!hasRtc) {
+        return;
+    }
+
     // timestamp,temperature,humidity,vbat,vsolar,levelTop,levelBottom,light
     DateTime time = rtc.now();
     // change to .minute() to log once every hour
@@ -426,33 +502,49 @@ void logData() {
         logged = true;
 
         sensors_event_t humidity, temp;
-        dht.getEvent(&humidity, &temp); // populate temp and humidity objects
+        if (hasDht) {
+            dht.getEvent(&humidity, &temp); // populate temp and humidity objects
+        }
 
-        logfile.print(time.timestamp(DateTime::TIMESTAMP_FULL));
-        logfile.print(",");
-        logfile.print(temp.temperature);
-        logfile.print(",");
-        logfile.print(humidity.relative_humidity);
-        logfile.print(",");
-        logfile.print(maxlipo.cellVoltage());
-        logfile.print(",");
-        logfile.print(printVin());
-        logfile.print(",");
-        logfile.print(digitalRead(WATERTOPPIN), DEC);
-        logfile.print(",");
-        logfile.print(digitalRead(WATERBOTTOMPIN), DEC);
-        logfile.print(",");
-        logfile.print(analogRead(LIGHTPIN));
-        logfile.println();
-        logfile.flush();
+        if (logfile) {
+            logfile.print(time.timestamp(DateTime::TIMESTAMP_FULL));
+            logfile.print(",");
+            if (hasDht) {
+                logfile.print(temp.temperature);
+            }
+            logfile.print(",");
+            if (hasDht) {
+                logfile.print(humidity.relative_humidity);
+            }
+            logfile.print(",");
+            if (hasBatteryMonitor) {
+                logfile.print(maxlipo.cellVoltage());
+            }
+            logfile.print(",");
+            logfile.print(printVin());
+            logfile.print(",");
+            logfile.print(digitalRead(WATERTOPPIN), DEC);
+            logfile.print(",");
+            logfile.print(digitalRead(WATERBOTTOMPIN), DEC);
+            logfile.print(",");
+            logfile.print(analogRead(LIGHTPIN));
+            logfile.println();
+            logfile.flush();
+        }
 
         Serial.print(time.timestamp(DateTime::TIMESTAMP_FULL));
         Serial.print(",");
-        Serial.print(temp.temperature);
+        if (hasDht) {
+            Serial.print(temp.temperature);
+        }
         Serial.print(",");
-        Serial.print(humidity.relative_humidity);
+        if (hasDht) {
+            Serial.print(humidity.relative_humidity);
+        }
         Serial.print(",");
-        Serial.print(maxlipo.cellVoltage());
+        if (hasBatteryMonitor) {
+            Serial.print(maxlipo.cellVoltage());
+        }
         Serial.print(",");
         Serial.print(printVin());
         Serial.print(",");
@@ -470,34 +562,39 @@ void logData() {
 }
 
 void printScreen() {
-    // RTC
-    DateTime now = rtc.now();
     // Inside termometer PHT20
     sensors_event_t humidity, temp;
-    dht.getEvent(&humidity, &temp); // populate temp and humidity objects
+    if (hasDht) {
+        dht.getEvent(&humidity, &temp); // populate temp and humidity objects
+    }
     // OLED
     display.clearDisplay();
     display.setTextSize(1);
     display.setTextColor(SH110X_WHITE);
     display.setCursor(0,0);
     // Display current time
-    display.print(now.day(), DEC);
-    display.print(".");
-    display.print(now.month(), DEC);
-    display.print(".");
-    display.print(now.year(), DEC);
-    display.print(" - ");
-    display.print(now.hour(), DEC);
-    display.print(":");
-    if (now.minute() < 10) {
-        display.print("0");
+    if (hasRtc) {
+        DateTime now = rtc.now();
+        display.print(now.day(), DEC);
+        display.print(".");
+        display.print(now.month(), DEC);
+        display.print(".");
+        display.print(now.year(), DEC);
+        display.print(" - ");
+        display.print(now.hour(), DEC);
+        display.print(":");
+        if (now.minute() < 10) {
+            display.print("0");
+        }
+        display.print(now.minute(), DEC);
+        display.print(":");
+        if (now.second() < 10) {
+            display.print("0");
+        }
+        display.print(now.second(), DEC);
+    } else {
+        display.print("RTC: ERROR");
     }
-    display.print(now.minute(), DEC);
-    display.print(":");
-    if (now.second() < 10) {
-        display.print("0");
-    }
-    display.print(now.second(), DEC);
     display.println();
     // Display input voltage
     display.print("VIN:");
@@ -506,16 +603,28 @@ void printScreen() {
     display.println();
     // Display temp and humidity inside the box
     display.print("BOX: T:");
-    display.print(temp.temperature);
+    if (hasDht) {
+        display.print(temp.temperature);
+    } else {
+        display.print("ERR");
+    }
     display.print(" H:");
-    display.print(humidity.relative_humidity);
+    if (hasDht) {
+        display.print(humidity.relative_humidity);
+    } else {
+        display.print("ERR");
+    }
     display.println();
     // Display voltage of the battery
     display.print("BAT:");
-    display.print(maxlipo.cellVoltage());
-    display.print("V ");
-    display.print(maxlipo.cellPercent());
-    display.print("%");
+    if (hasBatteryMonitor) {
+        display.print(maxlipo.cellVoltage());
+        display.print("V ");
+        display.print(maxlipo.cellPercent());
+        display.print("%");
+    } else {
+        display.print("ERR");
+    }
     display.println();
     // Display data from light sensor - PT19
     int light_value = analogRead(LIGHTPIN);
