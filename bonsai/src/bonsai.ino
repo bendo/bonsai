@@ -96,6 +96,7 @@ bool beginRtcWithRetry();
 bool beginSdWithRetry();
 bool syncRtcFromInternet();
 const char* wifiStatusText();
+bool turnOnPump();
 
 void setup() {
     Serial.begin(115200);
@@ -434,8 +435,11 @@ void loop() {
                 turnOffPump();
                 display.print("Pump turned OFF.");
             } else {
-                turnOnPump();
-                display.print("Pump turned ON.");
+                if (turnOnPump()) {
+                    display.print("Pump turned ON.");
+                } else {
+                    display.print("Water level too low.");
+                }
             }
             display.display();
             isLongPressDetected = true; // Prevent repeated triggers
@@ -516,14 +520,16 @@ bool isWaterLevelOK() {
     return digitalRead(WATERBOTTOMPIN) == 1;
 }
 
-void turnOnPump() {
-    if (isWaterLevelOK()) {
+bool turnOnPump() {
+    if (!state.isWatering && isWaterLevelOK()) {
         analogWrite(RELAYPIN, 255);
         state.isWatering = true;
         state.startTime = millis();
         state.lastCheckTime = state.startTime;
         Serial.println("Pump turned ON.");
+        return true;
     }
+    return false;
 }
 
 void turnOffPump() {
