@@ -5,6 +5,7 @@
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>
+#include <time.h>
 #include <Adafruit_AHTX0.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_MAX1704X.h>
@@ -78,6 +79,7 @@ bool logged = false;
 bool hasDht = false;
 bool hasBatteryMonitor = false;
 bool hasRtc = false;
+bool hasValidTime = false;
 bool hasSd = false;
 bool hasWiFiCredentials = false;
 
@@ -85,6 +87,7 @@ bool beginDhtWithRetry();
 bool beginBatteryMonitorWithRetry();
 bool beginRtcWithRetry();
 bool beginSdWithRetry();
+bool syncRtcFromInternet();
 
 void setup() {
     Serial.begin(115200);
@@ -166,6 +169,8 @@ void setup() {
         if (!rtc.initialized() || rtc.lostPower()) {
             Serial.println("RTC is NOT initialized, let's set the time!");
             //rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
+        } else {
+            hasValidTime = true;
         }
 
         rtc.start();
@@ -195,6 +200,9 @@ void setup() {
     // Connect to WiFi
     if (hasWiFiCredentials) {
         connectToWiFi();
+        if (hasRtc && !hasValidTime && isWiFiOn()) {
+            hasValidTime = syncRtcFromInternet();
+        }
     }
 
     // Check filesystem on SD Card
@@ -308,6 +316,28 @@ bool beginSdWithRetry() {
     return false;
 }
 
+bool syncRtcFromInternet() {
+    const char* timezone = "CET-1CEST,M3.5.0,M10.5.0/3"; // Europe/Berlin
+    configTzTime(timezone, "pool.ntp.org", "time.nist.gov");
+
+    struct tm timeinfo;
+    if (!getLocalTime(&timeinfo, 10000)) {
+        Serial.println("Failed to sync time from NTP");
+        return false;
+    }
+
+    rtc.adjust(DateTime(
+        timeinfo.tm_year + 1900,
+        timeinfo.tm_mon + 1,
+        timeinfo.tm_mday,
+        timeinfo.tm_hour,
+        timeinfo.tm_min,
+        timeinfo.tm_sec
+    ));
+    Serial.println("RTC synced from NTP using Europe/Berlin local time");
+    return true;
+}
+
 void connectToWiFi() {
     const int maxRetries = 10;
     int retries = 0;
@@ -419,7 +449,7 @@ void loop() {
     }
 
     // Check if it's time to start watering (21:35)
-    if (hasRtc) {
+    if (hasValidTime) {
         DateTime now = rtc.now();
         if (!state.isWatering && now.hour() == wateringHour && now.minute() == wateringMinute && now.second() < 20) {
             if (isWaterLevelOK()) {
@@ -491,7 +521,7 @@ float printVin() {
 }
 
 void logData() {
-    if (!hasRtc) {
+    if (!hasValidTime) {
         return;
     }
 
@@ -573,7 +603,7 @@ void printScreen() {
     display.setTextColor(SH110X_WHITE);
     display.setCursor(0,0);
     // Display current time
-    if (hasRtc) {
+    if (hasValidTime) {
         DateTime now = rtc.now();
         display.print(now.day(), DEC);
         display.print(".");
@@ -592,6 +622,8 @@ void printScreen() {
             display.print("0");
         }
         display.print(now.second(), DEC);
+    } else if (hasRtc) {
+        display.print("RTC: TIME ERR");
     } else {
         display.print("RTC: ERROR");
     }
