@@ -55,6 +55,13 @@ const long checkInterval = 1000; // Check water level every 1 second
 String ssid;
 String password;
 
+enum WiFiConnectionStatus {
+    WIFI_STATUS_OFF,
+    WIFI_STATUS_LAN,
+    WIFI_STATUS_NET
+};
+WiFiConnectionStatus wifiStatus = WIFI_STATUS_OFF;
+
 struct WateringState {
     bool isWatering;            // Tracks if pump is currently on
     unsigned long startTime;    // When watering started
@@ -88,6 +95,7 @@ bool beginBatteryMonitorWithRetry();
 bool beginRtcWithRetry();
 bool beginSdWithRetry();
 bool syncRtcFromInternet();
+const char* wifiStatusText();
 
 void setup() {
     Serial.begin(115200);
@@ -323,6 +331,7 @@ bool syncRtcFromInternet() {
     struct tm timeinfo;
     if (!getLocalTime(&timeinfo, 10000)) {
         Serial.println("Failed to sync time from NTP");
+        wifiStatus = isWiFiOn() ? WIFI_STATUS_LAN : WIFI_STATUS_OFF;
         return false;
     }
 
@@ -334,6 +343,7 @@ bool syncRtcFromInternet() {
         timeinfo.tm_min,
         timeinfo.tm_sec
     ));
+    wifiStatus = WIFI_STATUS_NET;
     Serial.println("RTC synced from NTP using Europe/Berlin local time");
     return true;
 }
@@ -365,17 +375,26 @@ void connectToWiFi() {
         retries++;
     }
     if (WiFi.status() == WL_CONNECTED) {
+        wifiStatus = WIFI_STATUS_LAN;
         Serial.print("Connected to WiFi. IP address: ");
         Serial.println(WiFi.localIP());
         display.fillRect(0, 32, 128, 40, SH110X_BLACK);
         display.println("WiFi               OK");
         display.display();
     } else {
+        wifiStatus = WIFI_STATUS_OFF;
         Serial.println("Failed to connect to WiFi after retries");
         display.fillRect(0, 32, 128, 40, SH110X_BLACK);
         display.println("WiFi            ERROR");
         display.display();
     }
+}
+
+const char* wifiStatusText() {
+    if (!isWiFiOn()) {
+        return "OFF";
+    }
+    return wifiStatus == WIFI_STATUS_NET ? "NET" : "LAN";
 }
 
 void loop() {
@@ -679,7 +698,7 @@ void printScreen() {
     display.println();
     // Display WiFi status
     display.print("WiFi: ");
-    display.print(isWiFiOn() ? "ON" : "OFF");
+    display.print(wifiStatusText());
     // Display all of the above
     display.display();
 }
