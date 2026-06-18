@@ -46,8 +46,8 @@ RTC_PCF8523 rtc;
 File logfile;
 
 // Timing constants
-const int wateringHour = 20;    // 21:00 (9 PM)
-const int wateringMinute = 5;  // 35 minutes past the hour
+const int wateringHour = 21;    // 21:00 (9 PM)
+const int wateringMinute = 35;  // 35 minutes past the hour
 const long wateringDuration = 5 * 60 * 1000UL; // 5 minutes in milliseconds
 const long checkInterval = 1000; // Check water level every 1 second
 
